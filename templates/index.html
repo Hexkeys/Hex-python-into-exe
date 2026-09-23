@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Hex Python → EXE</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0b1020; --panel:#121a2d; --border:#26334f; --text:#e8edf7; --muted:#8d9ab3; --accent:#7c9cff; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:Inter,system-ui,sans-serif; background:var(--bg); color:var(--text); }
+    header { padding:18px 24px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+    h1 { margin:0; font-size:20px; } .muted { color:var(--muted); font-size:13px; }
+    main { display:grid; grid-template-columns:minmax(0,1fr) 330px; gap:16px; padding:16px; max-width:1400px; margin:auto; }
+    .panel { background:var(--panel); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+    .toolbar { display:flex; gap:8px; padding:10px; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+    button,.file { border:1px solid var(--border); background:#18233b; color:var(--text); padding:9px 12px; border-radius:8px; cursor:pointer; }
+    button.primary { background:var(--accent); color:#071022; border-color:var(--accent); font-weight:700; }
+    button:disabled { opacity:.5; cursor:not-allowed; }
+    input[type=file] { display:none; }
+    textarea { width:100%; min-height:68vh; resize:vertical; border:0; outline:0; background:#090e1a; color:#e8edf7; padding:18px; font:14px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace; tab-size:4; }
+    aside { padding:16px; } label { display:block; margin:14px 0 6px; font-size:13px; color:var(--muted); }
+    input[type=text] { width:100%; background:#090e1a; border:1px solid var(--border); color:var(--text); padding:10px; border-radius:8px; }
+    .status { white-space:pre-wrap; margin-top:12px; padding:10px; border-radius:8px; background:#090e1a; color:var(--muted); font:12px/1.5 ui-monospace,monospace; max-height:220px; overflow:auto; }
+    .row { display:flex; gap:10px; align-items:center; } .row input { width:auto; }
+    @media(max-width:850px){ main{grid-template-columns:1fr;} textarea{min-height:55vh;} }
+  </style>
+</head>
+<body>
+<header>
+  <div><h1>Hex Python → EXE</h1><div class="muted">Type Python live, open a .py file, then build it with PyInstaller.</div></div>
+</header>
+<main>
+  <section class="panel">
+    <div class="toolbar">
+      <label class="file">Open .py<input id="file" type="file" accept=".py,text/x-python"></label>
+      <button id="new">New</button>
+      <button id="downloadPy">Save .py</button>
+      <button class="primary" id="build">Build EXE</button>
+    </div>
+    <textarea id="code" spellcheck="false">print("Hello from Hex Python!")</textarea>
+  </section>
+  <aside class="panel">
+    <label>Output filename</label>
+    <input id="filename" type="text" value="main.py">
+    <label class="row"><input id="onefile" type="checkbox" checked> Single EXE (--onefile)</label>
+    <label class="row"><input id="windowed" type="checkbox"> Windowed app (no console)</label>
+    <label>Live status</label>
+    <div id="status" class="status">Ready. Your code is edited locally in this page until you build.</div>
+  </aside>
+</main>
+<script>
+const code = document.querySelector('#code');
+const status = document.querySelector('#status');
+const filename = document.querySelector('#filename');
+
+code.addEventListener('input', () => {
+  status.textContent = `Editing ${code.value.length.toLocaleString()} characters…`;
+});
+
+document.querySelector('#file').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  code.value = await file.text();
+  filename.value = file.name;
+  status.textContent = `Loaded ${file.name} — ${code.value.length.toLocaleString()} characters.`;
+});
+
+document.querySelector('#new').onclick = () => {
+  code.value = '';
+  filename.value = 'main.py';
+  status.textContent = 'New Python file.';
+  code.focus();
+};
+
+document.querySelector('#downloadPy').onclick = () => {
+  const blob = new Blob([code.value], {type:'text/x-python'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename.value.endsWith('.py') ? filename.value : filename.value + '.py';
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+document.querySelector('#build').onclick = async () => {
+  const btn = document.querySelector('#build');
+  btn.disabled = true;
+  status.textContent = 'Building with PyInstaller…';
+  try {
+    const res = await fetch('/api/build', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        code:code.value,
+        filename:filename.value,
+        onefile:document.querySelector('#onefile').checked,
+        windowed:document.querySelector('#windowed').checked
+      })
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(()=>({error:'Build failed.'}));
+      throw new Error((data.error || 'Build failed.') + (data.log ? '\n\n' + data.log : ''));
+    }
+    const blob = await res.blob();
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^"]+)"?/i);
+    const name = match ? match[1] : 'main.exe';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    status.textContent = 'Build complete. The EXE download has started.';
+  } catch (err) {
+    status.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+  }
+};
+</script>
+</body>
+</html>
